@@ -327,7 +327,8 @@ Provide 3 sections:
         body: JSON.stringify({
           model: model,
           messages: [{ role: 'user', content: prompt }],
-          temperature: 0.3
+          temperature: 0.3,
+          max_tokens: 800
         })
       });
 
