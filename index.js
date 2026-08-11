@@ -7,8 +7,6 @@ const http = require('http');
 const crypto = require('crypto');
 
 const PORT = process.env.PORT || 3000;
-const VT_API_KEY = process.env.VT_API_KEY || 'cacabe74e1825709a15da1a78f1dac4f913f49bf04a11bc7c4b9b06f5056c102';
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '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';
 
 const VT_BASE = 'https://www.virustotal.com/api/v3';
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1/chat/completions';
