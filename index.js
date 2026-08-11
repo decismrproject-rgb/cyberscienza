@@ -8,6 +8,18 @@ const crypto = require('crypto');
 
 const PORT = process.env.PORT || 3000;
 
+// Keys are read ONLY from environment variables. No hardcoded fallback —
+// on Railway, set these under your service's "Variables" tab.
+const VT_API_KEY = process.env.VT_API_KEY;
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+
+if (!VT_API_KEY) {
+  console.warn('[WARN] VT_API_KEY is not set. VirusTotal lookups will fail or return no data.');
+}
+if (!OPENROUTER_API_KEY) {
+  console.warn('[WARN] OPENROUTER_API_KEY is not set. AI analysis will fall back to client-supplied keys only.');
+}
+
 const VT_BASE = 'https://www.virustotal.com/api/v3';
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1/chat/completions';
 
@@ -330,6 +342,9 @@ Provide 3 sections:
 // ---------- VirusTotal API Engine ----------
 
 async function vtFetch(url, opts = {}) {
+  if (!VT_API_KEY) {
+    throw new Error('VT_API_KEY is not configured on the server.');
+  }
   const headers = Object.assign({ 'x-apikey': VT_API_KEY }, opts.headers || {});
   const res = await fetch(url, Object.assign({}, opts, { headers }));
   const data = await res.json().catch(() => ({}));
@@ -428,16 +443,18 @@ const server = http.createServer((req, res) => {
           const boundaryMatch = contentType.match(/boundary=(?:"([^"]+)"|([^;]+))/i);
           const boundary = boundaryMatch ? (boundaryMatch[1] || boundaryMatch[2]) : null;
           const parsed = parseMultipart(buffer, boundary);
-          
+
           if (!parsed.fileObj) throw new Error("No file payload detected.");
           openrouterKey = parsed.openrouterKey;
           result = await handleFileScan(parsed.fileObj.data, parsed.fileObj.filename);
         } else {
           const parsed = JSON.parse(Buffer.concat(chunks).toString('utf-8') || '{}');
           openrouterKey = parsed.openrouterKey || '';
-          
+
+          const target = (parsed.target || '').trim();
+          if (!target) throw new Error('No target provided.');
+
           // Hash or URL Lookup
-          const target = parsed.target.trim();
           try {
             const vtRes = await vtFetch(`${VT_BASE}/files/${target}`);
             result = summarizeData(vtRes.data.attributes, 'Hash / Asset', target);
