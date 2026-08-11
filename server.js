@@ -314,6 +314,8 @@ Provide 3 sections:
     'anthropic/claude-sonnet-4.5'
   ];
 
+  let lastError = null;
+
   for (const model of modelsToTry) {
     try {
       const res = await fetch(OPENROUTER_BASE, {
@@ -329,14 +331,22 @@ Provide 3 sections:
         })
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
+
       if (res.ok && data.choices?.[0]?.message?.content) {
         return `[Generated using ${model}]\n\n` + data.choices[0].message.content.trim();
       }
-    } catch (e) {}
+
+      // Log the actual reason instead of swallowing it
+      lastError = data?.error?.message || `HTTP ${res.status} ${res.statusText}`;
+      console.error(`[OpenRouter] model=${model} failed: ${lastError}`, JSON.stringify(data));
+    } catch (e) {
+      lastError = e.message;
+      console.error(`[OpenRouter] model=${model} threw:`, e);
+    }
   }
 
-  return "OpenRouter AI Service was unable to respond. Please verify your OpenRouter API key.";
+  return `OpenRouter AI Service was unable to respond. Reason: ${lastError || 'unknown error'}`;
 }
 
 // ---------- VirusTotal API Engine ----------
