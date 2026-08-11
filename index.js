@@ -301,9 +301,7 @@ Provide 3 sections:
 3. ACTION PLAN FOR DEFENDERS (Clear steps to take)`;
 
   const modelsToTry = [
-    'meta-llama/llama-3.2-3b-instruct:free',
-    'google/gemini-2.0-flash-exp:free',
-    'qwen/qwen-2.5-7b-instruct:free'
+    'anthropic/claude-sonnet-4.5'
   ];
 
   for (const model of modelsToTry) {
