@@ -253,34 +253,166 @@ const HTML_PAGE = `<!DOCTYPE html>
       if (!activeData) return alert('No report data available.');
       
       const printWin = window.open('', '_blank');
+      const isThreat = activeData.malicious > 0;
+      const statusLabel = isThreat ? \`THREAT DETECTED (\${activeData.malicious}/\${activeData.total} ENGINES)\` : 'CLEAN / NO THREATS FOUND';
+      const statusColor = isThreat ? '#ef4444' : '#10b981';
+      const statusBg = isThreat ? 'rgba(239,68,68,0.12)' : 'rgba(16,185,129,0.12)';
+
+      const metaRows = Object.entries(activeData.meta || {})
+        .map(([k, v]) => \`<tr><td class="key">\${k}</td><td>\${v || 'N/A'}</td></tr>\`)
+        .join('');
+
+      const engineRows = (activeData.engines || [])
+        .map(e => {
+          const mal = e.category === 'malicious';
+          return \`<tr class="\${mal ? 'mal-row' : ''}"><td>\${e.engine}</td><td>\${e.result}</td></tr>\`;
+        })
+        .join('') || '<tr><td colspan="2" style="text-align:center;color:#94a3b8;">No vendor data available</td></tr>';
+
       printWin.document.write(\`
         <html>
         <head>
           <title>CYBERSCIENZA Threat Report - \${activeData.target}</title>
           <style>
-            body { font-family: Arial, sans-serif; padding: 30px; color: #111; }
-            h1 { font-size: 24px; margin-bottom: 5px; }
-            .badge { display: inline-block; padding: 4px 10px; background: #eee; font-weight: bold; margin-bottom: 20px; }
-            .box { background: #f4f4f5; padding: 15px; border-radius: 6px; margin: 15px 0; white-space: pre-wrap; font-size: 14px; }
-            table { width: 100%; border-collapse: collapse; margin: 15px 0; }
-            td, th { border: 1px solid #ccc; padding: 8px; font-size: 12px; text-align: left; }
-            th { background: #e5e7eb; }
+            @page { margin: 24px; }
+            * { box-sizing: border-box; }
+            body {
+              font-family: 'Segoe UI', Arial, sans-serif;
+              padding: 0;
+              margin: 0;
+              color: #1e293b;
+              background: #ffffff;
+            }
+            .header-band {
+              background: linear-gradient(135deg, #4f46e5, #06b6d4);
+              padding: 28px 36px;
+              color: #fff;
+            }
+            .header-band .brand {
+              font-size: 12px;
+              letter-spacing: 3px;
+              text-transform: uppercase;
+              opacity: 0.85;
+              margin-bottom: 4px;
+            }
+            .header-band h1 {
+              font-size: 26px;
+              margin: 0 0 4px 0;
+              letter-spacing: 1px;
+            }
+            .header-band .target {
+              font-size: 14px;
+              opacity: 0.95;
+              word-break: break-all;
+            }
+            .content { padding: 28px 36px; }
+            .status-pill {
+              display: inline-block;
+              padding: 8px 18px;
+              border-radius: 999px;
+              font-weight: 700;
+              font-size: 13px;
+              letter-spacing: 0.5px;
+              color: \${statusColor};
+              background: \${statusBg};
+              border: 1.5px solid \${statusColor};
+              margin-bottom: 20px;
+            }
+            .stats-grid {
+              display: grid;
+              grid-template-columns: repeat(4, 1fr);
+              gap: 12px;
+              margin-bottom: 26px;
+            }
+            .stat-card {
+              border-radius: 10px;
+              padding: 14px 10px;
+              text-align: center;
+              border: 1px solid #e2e8f0;
+            }
+            .stat-card .num { font-size: 22px; font-weight: 800; }
+            .stat-card .label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; margin-top: 2px; }
+            .stat-mal { background: rgba(239,68,68,0.08); }
+            .stat-mal .num { color: #ef4444; }
+            .stat-sus { background: rgba(245,158,11,0.08); }
+            .stat-sus .num { color: #f59e0b; }
+            .stat-harm { background: rgba(16,185,129,0.08); }
+            .stat-harm .num { color: #10b981; }
+            .stat-undet { background: rgba(100,116,139,0.08); }
+            .stat-undet .num { color: #475569; }
+
+            h3.section {
+              font-size: 13px;
+              text-transform: uppercase;
+              letter-spacing: 1px;
+              color: #4f46e5;
+              border-bottom: 2px solid #e2e8f0;
+              padding-bottom: 6px;
+              margin: 26px 0 12px 0;
+            }
+
+            .ai-box {
+              background: rgba(79, 70, 229, 0.06);
+              border-left: 4px solid #4f46e5;
+              border-radius: 6px;
+              padding: 16px 18px;
+              white-space: pre-wrap;
+              font-size: 13px;
+              line-height: 1.6;
+            }
+
+            table { width: 100%; border-collapse: collapse; font-size: 12px; }
+            td, th { border: 1px solid #e2e8f0; padding: 8px 10px; text-align: left; }
+            th { background: #f1f5f9; font-weight: 700; color: #334155; }
+            td.key { background: #f8fafc; font-weight: 600; color: #475569; width: 32%; }
+            .mal-row { background: rgba(239,68,68,0.06); color: #b91c1c; font-weight: 600; }
+
+            .engine-table-wrap { max-height: 340px; overflow: hidden; }
+
+            .footer {
+              margin-top: 32px;
+              padding-top: 14px;
+              border-top: 1px solid #e2e8f0;
+              font-size: 10px;
+              color: #94a3b8;
+              text-align: center;
+              letter-spacing: 0.5px;
+            }
           </style>
         </head>
         <body>
-          <h1>CYBERSCIENZA THREAT REPORT</h1>
-          <div class="badge">Target: \${activeData.target} (\${activeData.kind})</div>
-          
-          <h3>Summary Detections</h3>
-          <p>Malicious: \${activeData.malicious} | Suspicious: \${activeData.suspicious} | Harmless: \${activeData.harmless} | Total Vendors: \${activeData.total}</p>
+          <div class="header-band">
+            <div class="brand">Cyberscienza · Quantum Security Threat Intelligence</div>
+            <h1>Threat Intelligence Report</h1>
+            <div class="target">\${activeData.target} &nbsp;·&nbsp; \${activeData.kind}</div>
+          </div>
 
-          <h3>OpenRouter AI Analysis</h3>
-          <div class="box">\${activeData.aiAnalysis}</div>
+          <div class="content">
+            <div class="status-pill">\${statusLabel}</div>
 
-          <h3>Metadata</h3>
-          <table>
-            \${Object.entries(activeData.meta || {}).map(([k,v]) => \`<tr><td><strong>\${k}</strong></td><td>\${v}</td></tr>\`).join('')}
-          </table>
+            <div class="stats-grid">
+              <div class="stat-card stat-mal"><div class="num">\${activeData.malicious}</div><div class="label">Malicious</div></div>
+              <div class="stat-card stat-sus"><div class="num">\${activeData.suspicious}</div><div class="label">Suspicious</div></div>
+              <div class="stat-card stat-harm"><div class="num">\${activeData.harmless}</div><div class="label">Harmless</div></div>
+              <div class="stat-card stat-undet"><div class="num">\${activeData.undetected}</div><div class="label">Undetected</div></div>
+            </div>
+
+            <h3 class="section">⚡ AI Threat Assessment</h3>
+            <div class="ai-box">\${activeData.aiAnalysis}</div>
+
+            <h3 class="section">File / Target Metadata</h3>
+            <table>\${metaRows}</table>
+
+            <h3 class="section">Vendor Detections (\${(activeData.engines || []).length})</h3>
+            <div class="engine-table-wrap">
+              <table>
+                <tr><th>Engine</th><th>Result</th></tr>
+                \${engineRows}
+              </table>
+            </div>
+
+            <div class="footer">Generated by CYBERSCIENZA &nbsp;·&nbsp; \${new Date().toLocaleString()}</div>
+          </div>
 
           <script>window.onload = function() { window.print(); }</s\` + \`cript>
         </body>
