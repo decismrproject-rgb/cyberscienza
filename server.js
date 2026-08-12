@@ -720,7 +720,7 @@ function summarizeData(attrs = {}, kind, target, localHashes = {}) {
   }));
 
   const meta = {
-    'Name / Label': attrs.meaningful_name || attrs.name || target,
+    'Name / Label': attrs.meaningful_name || attrs.name || attrs.url || target,
     'Type': attrs.type_description || 'File / Asset',
     'File Size': localHashes.size ? `${localHashes.size} bytes` : (attrs.size ? `${attrs.size} bytes` : 'N/A'),
     'MD5': localHashes.md5 || attrs.md5 || 'N/A',
@@ -745,6 +745,141 @@ async function handleFileScan(buffer, fileName) {
   } catch (e) {}
 
   return summarizeData({}, 'Uploaded File', fileName, localHashes);
+}
+
+// ---------- Target classification & type-specific handlers ----------
+
+function classifyTarget(raw) {
+  const target = raw.trim();
+
+  // MD5 (32 hex), SHA1 (40 hex), SHA256 (64 hex)
+  if (/^[a-fA-F0-9]{32}$/.test(target) || /^[a-fA-F0-9]{40}$/.test(target) || /^[a-fA-F0-9]{64}$/.test(target)) {
+    return 'hash';
+  }
+
+  // IPv4
+  if (/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.test(target)) {
+    const octets = target.split('.').map(Number);
+    if (octets.every(o => o >= 0 && o <= 255)) return 'ip';
+  }
+
+  // Has a scheme or a path/query -> treat as full URL
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(target) || target.includes('/') || target.includes('?')) {
+    return 'url';
+  }
+
+  // Bare domain, e.g. "example.com" (no scheme, no path)
+  if (/^([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/.test(target)) {
+    return 'domain';
+  }
+
+  // Fallback: let VirusTotal's URL pipeline handle anything unrecognized
+  return 'url';
+}
+
+// VT "URL identifier" = base64url(url) with padding stripped
+function urlToId(url) {
+  return Buffer.from(url, 'utf-8')
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function handleHashScan(target) {
+  try {
+    const vtRes = await vtFetch(`${VT_BASE}/files/${target}`);
+    return summarizeData(vtRes.data.attributes, 'Hash / File', target);
+  } catch (e) {
+    return summarizeData({}, 'Hash / File', target);
+  }
+}
+
+async function handleIpScan(target) {
+  try {
+    const vtRes = await vtFetch(`${VT_BASE}/ip_addresses/${target}`);
+    return summarizeData(vtRes.data.attributes, 'IP Address', target);
+  } catch (e) {
+    return summarizeData({}, 'IP Address', target);
+  }
+}
+
+async function handleDomainScan(target) {
+  try {
+    const vtRes = await vtFetch(`${VT_BASE}/domains/${target}`);
+    return summarizeData(vtRes.data.attributes, 'Domain', target);
+  } catch (e) {
+    return summarizeData({}, 'Domain', target);
+  }
+}
+
+async function handleUrlScan(rawTarget) {
+  // Normalize: VT expects a scheme; add https:// if the user typed a bare host+path
+  const target = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test(rawTarget) ? rawTarget : `http://${rawTarget}`;
+  const id = urlToId(target);
+
+  // 1) Check if VirusTotal already has a report for this URL
+  try {
+    const existing = await vtFetch(`${VT_BASE}/urls/${id}`);
+    if (existing?.data?.attributes) {
+      return summarizeData(existing.data.attributes, 'URL', rawTarget);
+    }
+  } catch (e) {
+    // Not found yet — fall through and submit it for a fresh scan
+  }
+
+  // 2) Submit the URL for analysis
+  let analysisId = null;
+  try {
+    const submitRes = await vtFetch(`${VT_BASE}/urls`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `url=${encodeURIComponent(target)}`
+    });
+    analysisId = submitRes?.data?.id || null;
+  } catch (e) {
+    return summarizeData({}, 'URL', rawTarget);
+  }
+
+  if (!analysisId) {
+    return summarizeData({}, 'URL', rawTarget);
+  }
+
+  // 3) Poll the analysis until it completes (VT scans URLs asynchronously)
+  for (let i = 0; i < 8; i++) {
+    await sleep(2500);
+    try {
+      const analysisRes = await vtFetch(`${VT_BASE}/analyses/${analysisId}`);
+      const status = analysisRes?.data?.attributes?.status;
+      if (status === 'completed') {
+        return summarizeData(analysisRes.data.attributes, 'URL', rawTarget);
+      }
+    } catch (e) {
+      break;
+    }
+  }
+
+  // 4) Last resort: try the URL report endpoint again (may have indexed by now)
+  try {
+    const final = await vtFetch(`${VT_BASE}/urls/${id}`);
+    if (final?.data?.attributes) {
+      return summarizeData(final.data.attributes, 'URL', rawTarget);
+    }
+  } catch (e) {}
+
+  return summarizeData({}, 'URL', rawTarget);
+}
+
+async function scanTarget(rawTarget) {
+  const kind = classifyTarget(rawTarget);
+  if (kind === 'hash') return handleHashScan(rawTarget);
+  if (kind === 'ip') return handleIpScan(rawTarget);
+  if (kind === 'domain') return handleDomainScan(rawTarget);
+  return handleUrlScan(rawTarget);
 }
 
 // ---------- HTTP Server ----------
@@ -800,13 +935,8 @@ const server = http.createServer((req, res) => {
           const target = (parsed.target || '').trim();
           if (!target) throw new Error('No target provided.');
 
-          // Hash or URL Lookup
-          try {
-            const vtRes = await vtFetch(`${VT_BASE}/files/${target}`);
-            result = summarizeData(vtRes.data.attributes, 'Hash / Asset', target);
-          } catch (e) {
-            result = summarizeData({}, 'Target Query', target);
-          }
+          // Route to the correct VirusTotal endpoint based on what was entered
+          result = await scanTarget(target);
         }
 
         result.aiAnalysis = await generateOpenRouterAnalysis(result);
