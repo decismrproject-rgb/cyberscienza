@@ -241,6 +241,40 @@ const HTML_PAGE = `<!DOCTYPE html>
       });
     }
 
+    // Lightweight Markdown → HTML renderer for the AI narrative block
+    function mdToHtml(md) {
+      const lines = md.replace(/\\r\\n/g, '\\n').split('\\n');
+      let html = '';
+      let inList = false;
+
+      const inline = (t) => t
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/\\*\\*(.+?)\\*\\*/g, '<strong>$1</strong>')
+        .replace(/\\*(.+?)\\*/g, '<em>$1</em>')
+        .replace(/\`(.+?)\`/g, '<code>$1</code>');
+
+      const closeList = () => { if (inList) { html += '</ul>'; inList = false; } };
+
+      for (let raw of lines) {
+        const line = raw.trim();
+        if (!line) { closeList(); continue; }
+        if (/^-{3,}$/.test(line)) { closeList(); html += '<hr class="md-rule"/>'; continue; }
+        let m;
+        if ((m = line.match(/^###\\s+(.*)/))) { closeList(); html += \`<h4 class="md-h3">\${inline(m[1])}</h4>\`; continue; }
+        if ((m = line.match(/^##\\s+(.*)/))) { closeList(); html += \`<h3 class="md-h2">\${inline(m[1])}</h3>\`; continue; }
+        if ((m = line.match(/^#\\s+(.*)/))) { closeList(); html += \`<h2 class="md-h1">\${inline(m[1])}</h2>\`; continue; }
+        if ((m = line.match(/^[-*]\\s+(.*)/))) {
+          if (!inList) { html += '<ul class="md-list">'; inList = true; }
+          html += \`<li>\${inline(m[1])}</li>\`;
+          continue;
+        }
+        closeList();
+        html += \`<p class="md-p">\${inline(line)}</p>\`;
+      }
+      closeList();
+      return html;
+    }
+
     function exportToPDF() {
       if (!activeData) return alert('No report data available.');
 
@@ -269,9 +303,10 @@ const HTML_PAGE = `<!DOCTYPE html>
         })
         .join('') || '<tr><td colspan="2" style="text-align:center;color:#94a3b8;">No vendor data available</td></tr>';
 
-      const aiSections = (activeData.aiAnalysis || 'No AI report generated.')
+      const aiRawText = (activeData.aiAnalysis || 'No AI report generated.')
         .replace(/^\\[Generated using[^\\]]*\\]\\s*/i, '')
         .trim();
+      const aiSections = mdToHtml(aiRawText);
 
       printWin.document.write(\`
         <html>
@@ -287,20 +322,61 @@ const HTML_PAGE = `<!DOCTYPE html>
               padding: 0;
               margin: 0;
               color: #1e2430;
-              background: #ffffff;
               font-size: 13px;
               -webkit-print-color-adjust: exact;
               print-color-adjust: exact;
+              background-color: #f3f5fb;
+              background-image:
+                radial-gradient(circle at 92% 4%, rgba(79,70,229,0.10), transparent 40%),
+                radial-gradient(circle at 4% 30%, rgba(6,182,212,0.10), transparent 38%),
+                radial-gradient(circle at 96% 70%, rgba(16,185,129,0.08), transparent 36%),
+                radial-gradient(circle at 8% 92%, rgba(245,158,11,0.08), transparent 34%),
+                linear-gradient(180deg, #f3f5fb 0%, #eef1f9 100%);
+              background-attachment: fixed;
+            }
+
+            /* Decorative geometric shapes scattered on the page */
+            .shape { position: fixed; z-index: 0; pointer-events: none; }
+            .shape-ring {
+              width: 130px; height: 130px; border-radius: 50%;
+              border: 14px solid rgba(79,70,229,0.08);
+              top: 250px; right: -40px;
+            }
+            .shape-ring-sm {
+              width: 70px; height: 70px; border-radius: 50%;
+              border: 10px solid rgba(6,182,212,0.10);
+              top: 620px; left: -25px;
+            }
+            .shape-square {
+              width: 90px; height: 90px; border-radius: 18px;
+              background: rgba(16,185,129,0.06);
+              transform: rotate(18deg);
+              bottom: 160px; right: 20px;
+            }
+            .shape-tri {
+              width: 0; height: 0; bottom: 40px; left: 20px;
+              border-left: 45px solid transparent;
+              border-right: 45px solid transparent;
+              border-bottom: 78px solid rgba(245,158,11,0.07);
+            }
+            .shape-dots {
+              top: 470px; right: 30px; width: 90px; height: 46px;
+              background-image: radial-gradient(rgba(79,70,229,0.22) 1.6px, transparent 1.6px);
+              background-size: 11px 11px;
             }
 
             /* Cover strip */
             .cover {
               background: #0b1120;
-              background-image: linear-gradient(135deg, #0b1120 0%, #131c31 55%, #0e1c2b 100%);
+              background-image:
+                radial-gradient(circle at 88% -10%, rgba(6,182,212,0.35), transparent 45%),
+                radial-gradient(circle at 8% 115%, rgba(79,70,229,0.35), transparent 45%),
+                linear-gradient(135deg, #0b1120 0%, #131c31 55%, #0e1c2b 100%);
               color: #fff;
-              padding: 44px 48px 36px 48px;
+              padding: 44px 48px 40px 48px;
               position: relative;
               overflow: hidden;
+              z-index: 1;
             }
             .cover::after {
               content: "";
@@ -308,7 +384,26 @@ const HTML_PAGE = `<!DOCTYPE html>
               top: -60px; right: -60px;
               width: 220px; height: 220px;
               border-radius: 50%;
-              background: radial-gradient(circle, rgba(6,182,212,0.25), transparent 70%);
+              background: radial-gradient(circle, rgba(6,182,212,0.28), transparent 70%);
+            }
+            .cover::before {
+              content: "";
+              position: absolute;
+              bottom: -80px; left: 60px;
+              width: 200px; height: 200px;
+              border-radius: 50%;
+              background: radial-gradient(circle, rgba(79,70,229,0.30), transparent 70%);
+            }
+            .cover-hex {
+              position: absolute; top: 18px; right: 220px;
+              width: 46px; height: 46px;
+              border: 2px solid rgba(255,255,255,0.12);
+              transform: rotate(45deg);
+              border-radius: 10px;
+            }
+            .cover-bar {
+              position: absolute; left: 0; bottom: 0; width: 100%; height: 6px;
+              background: linear-gradient(90deg, #4f46e5, #06b6d4, #10b981, #f59e0b);
             }
             .cover-top {
               display: flex;
@@ -325,6 +420,7 @@ const HTML_PAGE = `<!DOCTYPE html>
               background: linear-gradient(135deg, #4f46e5, #06b6d4);
               display: flex; align-items: center; justify-content: center;
               font-family: 'Cinzel', serif; font-weight: 700; color: #fff; font-size: 15px;
+              box-shadow: 0 4px 14px rgba(6,182,212,0.35);
             }
             .brandmark .name { font-family: 'Cinzel', serif; font-weight: 700; letter-spacing: 2px; font-size: 15px; }
             .brandmark .tagline { font-size: 9px; letter-spacing: 1.5px; color: #7dd3fc; text-transform: uppercase; margin-top: 1px; }
@@ -335,8 +431,9 @@ const HTML_PAGE = `<!DOCTYPE html>
             .cover-target { font-family: 'Source Serif 4', serif; font-size: 13px; color: #cbd5e1; word-break: break-all; position: relative; z-index: 1; }
             .cover-target .type-chip {
               display: inline-block; margin-left: 8px; padding: 2px 9px; border-radius: 999px;
-              background: rgba(255,255,255,0.1); font-family: 'Inter', sans-serif; font-size: 9px;
+              background: rgba(255,255,255,0.12); font-family: 'Inter', sans-serif; font-size: 9px;
               letter-spacing: 0.5px; text-transform: uppercase; color: #a5f3fc;
+              border: 1px solid rgba(165,243,252,0.3);
             }
 
             .verdict-strip {
@@ -349,11 +446,12 @@ const HTML_PAGE = `<!DOCTYPE html>
               padding: 9px 20px; border-radius: 999px; font-weight: 700; font-size: 12px;
               letter-spacing: 0.5px; color: \${statusColor}; background: \${statusBg};
               border: 1px solid \${statusColor};
+              box-shadow: 0 4px 12px rgba(0,0,0,0.15);
             }
             .verdict-rate { font-size: 10px; color: #94a3b8; }
             .verdict-rate b { color: #fff; font-size: 13px; }
 
-            .content { padding: 32px 48px 40px 48px; }
+            .content { padding: 32px 48px 40px 48px; position: relative; z-index: 1; }
 
             .stats-grid {
               display: grid;
@@ -362,13 +460,24 @@ const HTML_PAGE = `<!DOCTYPE html>
               margin-bottom: 30px;
             }
             .stat-card {
-              border-radius: 10px;
-              padding: 16px 10px;
+              border-radius: 12px;
+              padding: 16px 10px 14px 10px;
               text-align: center;
               border: 1px solid #e6e9ef;
-              background: #fafbfc;
+              background: #ffffff;
+              box-shadow: 0 2px 8px rgba(15,23,42,0.05);
+              position: relative;
+              overflow: hidden;
             }
-            .stat-card .num { font-size: 24px; font-weight: 700; font-family: 'Source Serif 4', serif; }
+            .stat-card::before {
+              content: "";
+              position: absolute; top: 0; left: 0; right: 0; height: 4px;
+            }
+            .stat-mal::before { background: linear-gradient(90deg, #f87171, #dc2626); }
+            .stat-sus::before { background: linear-gradient(90deg, #fbbf24, #d97706); }
+            .stat-harm::before { background: linear-gradient(90deg, #34d399, #0d9488); }
+            .stat-undet::before { background: linear-gradient(90deg, #94a3b8, #64748b); }
+            .stat-card .num { font-size: 25px; font-weight: 700; font-family: 'Source Serif 4', serif; margin-top: 4px; }
             .stat-card .label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.8px; color: #6b7688; margin-top: 3px; font-weight: 600; }
             .stat-mal .num { color: #dc2626; }
             .stat-sus .num { color: #d97706; }
@@ -380,10 +489,13 @@ const HTML_PAGE = `<!DOCTYPE html>
               margin: 30px 0 14px 0;
             }
             .section-head .idx {
-              width: 22px; height: 22px; border-radius: 50%;
-              background: #0b1120; color: #fff; font-size: 11px; font-weight: 700;
+              width: 24px; height: 24px; border-radius: 7px; color: #fff; font-size: 11px; font-weight: 700;
               display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+              box-shadow: 0 3px 8px rgba(15,23,42,0.18);
             }
+            .section-head.s1 .idx { background: linear-gradient(135deg, #4f46e5, #6366f1); }
+            .section-head.s2 .idx { background: linear-gradient(135deg, #06b6d4, #0891b2); }
+            .section-head.s3 .idx { background: linear-gradient(135deg, #f59e0b, #d97706); }
             .section-head h3 {
               font-size: 12px;
               text-transform: uppercase;
@@ -391,29 +503,39 @@ const HTML_PAGE = `<!DOCTYPE html>
               color: #0b1120;
               font-weight: 700;
             }
-            .section-head .line { flex: 1; height: 1px; background: #e6e9ef; }
+            .section-head .line { flex: 1; height: 2px; border-radius: 2px; background: linear-gradient(90deg, #e6e9ef, transparent); }
 
             .ai-box {
-              background: #f8f9fc;
+              background: #ffffff;
               border: 1px solid #e6e9ef;
-              border-left: 3px solid #4f46e5;
-              border-radius: 6px;
-              padding: 18px 20px;
-              white-space: pre-wrap;
+              border-left: 4px solid #4f46e5;
+              border-radius: 10px;
+              padding: 20px 22px;
               font-family: 'Source Serif 4', serif;
               font-size: 12.5px;
               line-height: 1.75;
               color: #232a38;
+              box-shadow: 0 3px 12px rgba(15,23,42,0.05);
             }
+            .ai-box .md-h1 { font-family: 'Cinzel', serif; font-size: 15px; color: #0b1120; margin: 0 0 10px 0; }
+            .ai-box .md-h2 { font-family: 'Inter', sans-serif; font-size: 12px; text-transform: uppercase; letter-spacing: 0.8px; color: #4f46e5; margin: 16px 0 8px 0; padding-bottom: 4px; border-bottom: 2px solid #e6e9ef; }
+            .ai-box .md-h3 { font-family: 'Inter', sans-serif; font-size: 11.5px; font-weight: 700; color: #0891b2; margin: 12px 0 6px 0; }
+            .ai-box .md-p { margin: 0 0 9px 0; }
+            .ai-box .md-list { margin: 0 0 10px 18px; padding: 0; }
+            .ai-box .md-list li { margin-bottom: 5px; }
+            .ai-box .md-rule { border: none; border-top: 1px dashed #d8dce6; margin: 14px 0; }
+            .ai-box strong { color: #0b1120; }
+            .ai-box code { background: #f1f2f8; color: #4f46e5; padding: 1px 5px; border-radius: 4px; font-size: 11px; }
 
-            table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+            table { width: 100%; border-collapse: collapse; font-size: 11.5px; background: #fff; }
             td, th { border: 1px solid #e6e9ef; padding: 9px 12px; text-align: left; }
             th { background: #0b1120; color: #fff; font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
             td.key { background: #f8f9fc; font-weight: 600; color: #47526b; width: 30%; }
             td.val { font-family: 'Source Serif 4', serif; }
             .mal-row { background: #fef2f2; color: #991b1b; font-weight: 600; }
-            .mal-row td:first-child { border-left: 2px solid #dc2626; }
+            .mal-row td:first-child { border-left: 3px solid #dc2626; }
 
+            .engine-table-wrap { border-radius: 10px; overflow: hidden; box-shadow: 0 3px 12px rgba(15,23,42,0.05); }
             .engine-table-wrap table tr:nth-child(even):not(.mal-row) { background: #fbfbfd; }
 
             .footer {
@@ -438,7 +560,14 @@ const HTML_PAGE = `<!DOCTYPE html>
           </style>
         </head>
         <body>
+          <div class="shape shape-ring"></div>
+          <div class="shape shape-ring-sm"></div>
+          <div class="shape shape-square"></div>
+          <div class="shape shape-tri"></div>
+          <div class="shape shape-dots"></div>
+
           <div class="cover">
+            <div class="cover-hex"></div>
             <div class="cover-top">
               <div class="brandmark">
                 <div class="mark">C</div>
@@ -460,6 +589,7 @@ const HTML_PAGE = `<!DOCTYPE html>
               <div class="verdict-pill">\${statusLabel}</div>
               <div class="verdict-rate">Detection rate<br/><b>\${isNaN(detectionRate) ? 0 : detectionRate}%</b> of \${activeData.total} vendors</div>
             </div>
+            <div class="cover-bar"></div>
           </div>
 
           <div class="content">
@@ -470,13 +600,13 @@ const HTML_PAGE = `<!DOCTYPE html>
               <div class="stat-card stat-undet"><div class="num">\${activeData.undetected}</div><div class="label">Undetected</div></div>
             </div>
 
-            <div class="section-head"><div class="idx">1</div><h3>AI Threat Assessment</h3><div class="line"></div></div>
+            <div class="section-head s1"><div class="idx">1</div><h3>AI Threat Assessment</h3><div class="line"></div></div>
             <div class="ai-box">\${aiSections}</div>
 
-            <div class="section-head"><div class="idx">2</div><h3>Target Metadata</h3><div class="line"></div></div>
+            <div class="section-head s2"><div class="idx">2</div><h3>Target Metadata</h3><div class="line"></div></div>
             <table>\${metaRows}</table>
 
-            <div class="section-head"><div class="idx">3</div><h3>Vendor Detections (\${(activeData.engines || []).length})</h3><div class="line"></div></div>
+            <div class="section-head s3"><div class="idx">3</div><h3>Vendor Detections (\${(activeData.engines || []).length})</h3><div class="line"></div></div>
             <div class="engine-table-wrap">
               <table>
                 <tr><th>Security Vendor</th><th>Verdict</th></tr>
