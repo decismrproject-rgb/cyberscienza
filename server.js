@@ -60,7 +60,7 @@ const HTML_PAGE = `<!DOCTYPE html>
     .tab-btn.active { background: var(--accent-cyan); color: #000; border-color: var(--accent-cyan); }
 
     .input-group { display: flex; gap: 10px; margin-bottom: 1rem; }
-    input[type="text"], input[type="file"], input[type="password"] { flex: 1; background: #030508; border: 1px solid var(--glass-border); border-radius: 6px; padding: 0.8rem 1rem; color: #fff; outline: none; }
+    input[type="text"], input[type="file"] { flex: 1; background: #030508; border: 1px solid var(--glass-border); border-radius: 6px; padding: 0.8rem 1rem; color: #fff; outline: none; }
     button.btn-primary { background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan)); color: #fff; border: none; padding: 0 1.5rem; border-radius: 6px; font-weight: 700; cursor: pointer; }
     button.btn-primary:hover { opacity: 0.9; }
 
@@ -113,15 +113,10 @@ const HTML_PAGE = `<!DOCTYPE html>
         <input type="file" id="fileInput">
         <button class="btn-primary" onclick="runFileScan()">Upload & Scan</button>
       </div>
-
-      <div style="font-size: 0.75rem; color: #64748b; display: flex; align-items: center; gap: 8px; margin-top: 10px;">
-        <label>Optional OpenRouter Key:</label>
-        <input type="password" id="openrouterKey" placeholder="sk-or-v1-..." style="padding: 4px 8px; font-size: 0.75rem; max-width: 250px;">
-      </div>
     </div>
 
     <div id="loadingBox" class="card">
-      ⚡ Querying VirusTotal Security Network & Generating OpenRouter AI Analysis...
+      ⚡ Querying VirusTotal Security Network & Generating AI Analysis...
     </div>
 
     <div id="resultsCard" class="card">
@@ -141,7 +136,7 @@ const HTML_PAGE = `<!DOCTYPE html>
         <div class="stat-card"><div class="num" id="cntUndetected" style="color:#94a3b8">0</div><div class="label">Undetected</div></div>
       </div>
 
-      <h3 style="font-size: 1rem; margin-bottom: 0.5rem; color: var(--accent-cyan);">⚡ OpenRouter AI Assessment</h3>
+      <h3 style="font-size: 1rem; margin-bottom: 0.5rem; color: var(--accent-cyan);">⚡ AI Threat Assessment</h3>
       <div class="ai-box" id="aiReport">Analyzing...</div>
 
       <h3 style="font-size: 1rem; margin-bottom: 0.5rem;">File / Target Metadata</h3>
@@ -164,7 +159,6 @@ const HTML_PAGE = `<!DOCTYPE html>
 
     async function runTextScan() {
       const target = document.getElementById('targetInput').value.trim();
-      const openrouterKey = document.getElementById('openrouterKey').value.trim();
       if (!target) return alert('Please enter a valid target!');
 
       showLoading(true);
@@ -172,7 +166,7 @@ const HTML_PAGE = `<!DOCTYPE html>
         const res = await fetch('/api/scan', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ target, openrouterKey })
+          body: JSON.stringify({ target })
         });
         const data = await res.json();
         showLoading(false);
@@ -186,12 +180,10 @@ const HTML_PAGE = `<!DOCTYPE html>
 
     async function runFileScan() {
       const fileInput = document.getElementById('fileInput');
-      const openrouterKey = document.getElementById('openrouterKey').value.trim();
       if (!fileInput.files.length) return alert('Select a file to upload!');
 
       const formData = new FormData();
       formData.append('file', fileInput.files[0]);
-      formData.append('openrouterKey', openrouterKey);
 
       showLoading(true);
       try {
@@ -251,145 +243,226 @@ const HTML_PAGE = `<!DOCTYPE html>
 
     function exportToPDF() {
       if (!activeData) return alert('No report data available.');
-      
+
       const printWin = window.open('', '_blank');
       const isThreat = activeData.malicious > 0;
-      const statusLabel = isThreat ? \`THREAT DETECTED (\${activeData.malicious}/\${activeData.total} ENGINES)\` : 'CLEAN / NO THREATS FOUND';
-      const statusColor = isThreat ? '#ef4444' : '#10b981';
-      const statusBg = isThreat ? 'rgba(239,68,68,0.12)' : 'rgba(16,185,129,0.12)';
+      const statusLabel = isThreat ? \`THREAT DETECTED — \${activeData.malicious} OF \${activeData.total} ENGINES\` : 'CLEAN — NO THREATS DETECTED';
+      const statusColor = isThreat ? '#b91c1c' : '#0f766e';
+      const statusBg = isThreat ? '#fef2f2' : '#f0fdfa';
+      const detectionRate = Math.round((activeData.malicious / activeData.total) * 100);
+      const reportId = (activeData.meta && (activeData.meta['SHA-256'] || activeData.meta['MD5'])) ?
+        (activeData.meta['SHA-256'] || activeData.meta['MD5']).slice(0, 16).toUpperCase() :
+        Math.random().toString(36).slice(2, 10).toUpperCase();
+      const generatedAt = new Date();
+      const generatedAtStr = generatedAt.toLocaleString('en-US', { dateStyle: 'long', timeStyle: 'short' });
 
       const metaRows = Object.entries(activeData.meta || {})
-        .map(([k, v]) => \`<tr><td class="key">\${k}</td><td>\${v || 'N/A'}</td></tr>\`)
+        .map(([k, v]) => \`<tr><td class="key">\${k}</td><td class="val">\${v || '—'}</td></tr>\`)
         .join('');
 
       const engineRows = (activeData.engines || [])
+        .slice()
+        .sort((a, b) => (a.category === 'malicious' ? -1 : 1) - (b.category === 'malicious' ? -1 : 1))
         .map(e => {
           const mal = e.category === 'malicious';
-          return \`<tr class="\${mal ? 'mal-row' : ''}"><td>\${e.engine}</td><td>\${e.result}</td></tr>\`;
+          return \`<tr class="\${mal ? 'mal-row' : ''}"><td>\${e.engine}</td><td>\${mal ? '● Malicious' : '○ ' + (e.result || 'Clean')}</td></tr>\`;
         })
         .join('') || '<tr><td colspan="2" style="text-align:center;color:#94a3b8;">No vendor data available</td></tr>';
+
+      const aiSections = (activeData.aiAnalysis || 'No AI report generated.')
+        .replace(/^\\[Generated using[^\\]]*\\]\\s*/i, '')
+        .trim();
 
       printWin.document.write(\`
         <html>
         <head>
-          <title>CYBERSCIENZA Threat Report - \${activeData.target}</title>
+          <title>Cyberscienza Threat Intelligence Report — \${activeData.target}</title>
+          <meta charset="UTF-8"/>
+          <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Source+Serif+4:ital,wght@0,400;0,600;1,400&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
           <style>
-            @page { margin: 24px; }
+            @page { size: A4; margin: 0; }
             * { box-sizing: border-box; }
             body {
-              font-family: 'Segoe UI', Arial, sans-serif;
+              font-family: 'Inter', -apple-system, Segoe UI, Arial, sans-serif;
               padding: 0;
               margin: 0;
-              color: #1e293b;
+              color: #1e2430;
               background: #ffffff;
-            }
-            .header-band {
-              background: linear-gradient(135deg, #4f46e5, #06b6d4);
-              padding: 28px 36px;
-              color: #fff;
-            }
-            .header-band .brand {
-              font-size: 12px;
-              letter-spacing: 3px;
-              text-transform: uppercase;
-              opacity: 0.85;
-              margin-bottom: 4px;
-            }
-            .header-band h1 {
-              font-size: 26px;
-              margin: 0 0 4px 0;
-              letter-spacing: 1px;
-            }
-            .header-band .target {
-              font-size: 14px;
-              opacity: 0.95;
-              word-break: break-all;
-            }
-            .content { padding: 28px 36px; }
-            .status-pill {
-              display: inline-block;
-              padding: 8px 18px;
-              border-radius: 999px;
-              font-weight: 700;
               font-size: 13px;
-              letter-spacing: 0.5px;
-              color: \${statusColor};
-              background: \${statusBg};
-              border: 1.5px solid \${statusColor};
-              margin-bottom: 20px;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
             }
+
+            /* Cover strip */
+            .cover {
+              background: #0b1120;
+              background-image: linear-gradient(135deg, #0b1120 0%, #131c31 55%, #0e1c2b 100%);
+              color: #fff;
+              padding: 44px 48px 36px 48px;
+              position: relative;
+              overflow: hidden;
+            }
+            .cover::after {
+              content: "";
+              position: absolute;
+              top: -60px; right: -60px;
+              width: 220px; height: 220px;
+              border-radius: 50%;
+              background: radial-gradient(circle, rgba(6,182,212,0.25), transparent 70%);
+            }
+            .cover-top {
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-start;
+              margin-bottom: 26px;
+              position: relative;
+              z-index: 1;
+            }
+            .brandmark { display: flex; align-items: center; gap: 10px; }
+            .brandmark .mark {
+              width: 34px; height: 34px;
+              border-radius: 8px;
+              background: linear-gradient(135deg, #4f46e5, #06b6d4);
+              display: flex; align-items: center; justify-content: center;
+              font-family: 'Cinzel', serif; font-weight: 700; color: #fff; font-size: 15px;
+            }
+            .brandmark .name { font-family: 'Cinzel', serif; font-weight: 700; letter-spacing: 2px; font-size: 15px; }
+            .brandmark .tagline { font-size: 9px; letter-spacing: 1.5px; color: #7dd3fc; text-transform: uppercase; margin-top: 1px; }
+            .report-id { text-align: right; font-size: 10px; color: #94a3b8; line-height: 1.6; }
+            .report-id b { color: #e2e8f0; font-weight: 600; }
+
+            .cover-title { font-family: 'Cinzel', serif; font-size: 25px; font-weight: 600; letter-spacing: 0.5px; margin-bottom: 6px; position: relative; z-index: 1; }
+            .cover-target { font-family: 'Source Serif 4', serif; font-size: 13px; color: #cbd5e1; word-break: break-all; position: relative; z-index: 1; }
+            .cover-target .type-chip {
+              display: inline-block; margin-left: 8px; padding: 2px 9px; border-radius: 999px;
+              background: rgba(255,255,255,0.1); font-family: 'Inter', sans-serif; font-size: 9px;
+              letter-spacing: 0.5px; text-transform: uppercase; color: #a5f3fc;
+            }
+
+            .verdict-strip {
+              margin-top: 26px;
+              display: flex; align-items: center; gap: 18px;
+              position: relative; z-index: 1;
+            }
+            .verdict-pill {
+              display: inline-flex; align-items: center; gap: 8px;
+              padding: 9px 20px; border-radius: 999px; font-weight: 700; font-size: 12px;
+              letter-spacing: 0.5px; color: \${statusColor}; background: \${statusBg};
+              border: 1px solid \${statusColor};
+            }
+            .verdict-rate { font-size: 10px; color: #94a3b8; }
+            .verdict-rate b { color: #fff; font-size: 13px; }
+
+            .content { padding: 32px 48px 40px 48px; }
+
             .stats-grid {
               display: grid;
               grid-template-columns: repeat(4, 1fr);
               gap: 12px;
-              margin-bottom: 26px;
+              margin-bottom: 30px;
             }
             .stat-card {
               border-radius: 10px;
-              padding: 14px 10px;
+              padding: 16px 10px;
               text-align: center;
-              border: 1px solid #e2e8f0;
+              border: 1px solid #e6e9ef;
+              background: #fafbfc;
             }
-            .stat-card .num { font-size: 22px; font-weight: 800; }
-            .stat-card .label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: #64748b; margin-top: 2px; }
-            .stat-mal { background: rgba(239,68,68,0.08); }
-            .stat-mal .num { color: #ef4444; }
-            .stat-sus { background: rgba(245,158,11,0.08); }
-            .stat-sus .num { color: #f59e0b; }
-            .stat-harm { background: rgba(16,185,129,0.08); }
-            .stat-harm .num { color: #10b981; }
-            .stat-undet { background: rgba(100,116,139,0.08); }
-            .stat-undet .num { color: #475569; }
+            .stat-card .num { font-size: 24px; font-weight: 700; font-family: 'Source Serif 4', serif; }
+            .stat-card .label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.8px; color: #6b7688; margin-top: 3px; font-weight: 600; }
+            .stat-mal .num { color: #dc2626; }
+            .stat-sus .num { color: #d97706; }
+            .stat-harm .num { color: #0d9488; }
+            .stat-undet .num { color: #64748b; }
 
-            h3.section {
-              font-size: 13px;
-              text-transform: uppercase;
-              letter-spacing: 1px;
-              color: #4f46e5;
-              border-bottom: 2px solid #e2e8f0;
-              padding-bottom: 6px;
-              margin: 26px 0 12px 0;
+            .section-head {
+              display: flex; align-items: center; gap: 10px;
+              margin: 30px 0 14px 0;
             }
+            .section-head .idx {
+              width: 22px; height: 22px; border-radius: 50%;
+              background: #0b1120; color: #fff; font-size: 11px; font-weight: 700;
+              display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+            }
+            .section-head h3 {
+              font-size: 12px;
+              text-transform: uppercase;
+              letter-spacing: 1.2px;
+              color: #0b1120;
+              font-weight: 700;
+            }
+            .section-head .line { flex: 1; height: 1px; background: #e6e9ef; }
 
             .ai-box {
-              background: rgba(79, 70, 229, 0.06);
-              border-left: 4px solid #4f46e5;
+              background: #f8f9fc;
+              border: 1px solid #e6e9ef;
+              border-left: 3px solid #4f46e5;
               border-radius: 6px;
-              padding: 16px 18px;
+              padding: 18px 20px;
               white-space: pre-wrap;
-              font-size: 13px;
-              line-height: 1.6;
+              font-family: 'Source Serif 4', serif;
+              font-size: 12.5px;
+              line-height: 1.75;
+              color: #232a38;
             }
 
-            table { width: 100%; border-collapse: collapse; font-size: 12px; }
-            td, th { border: 1px solid #e2e8f0; padding: 8px 10px; text-align: left; }
-            th { background: #f1f5f9; font-weight: 700; color: #334155; }
-            td.key { background: #f8fafc; font-weight: 600; color: #475569; width: 32%; }
-            .mal-row { background: rgba(239,68,68,0.06); color: #b91c1c; font-weight: 600; }
+            table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+            td, th { border: 1px solid #e6e9ef; padding: 9px 12px; text-align: left; }
+            th { background: #0b1120; color: #fff; font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; }
+            td.key { background: #f8f9fc; font-weight: 600; color: #47526b; width: 30%; }
+            td.val { font-family: 'Source Serif 4', serif; }
+            .mal-row { background: #fef2f2; color: #991b1b; font-weight: 600; }
+            .mal-row td:first-child { border-left: 2px solid #dc2626; }
 
-            .engine-table-wrap { max-height: 340px; overflow: hidden; }
+            .engine-table-wrap table tr:nth-child(even):not(.mal-row) { background: #fbfbfd; }
 
             .footer {
-              margin-top: 32px;
-              padding-top: 14px;
-              border-top: 1px solid #e2e8f0;
-              font-size: 10px;
-              color: #94a3b8;
-              text-align: center;
-              letter-spacing: 0.5px;
+              margin-top: 40px;
+              padding-top: 16px;
+              border-top: 1px solid #e6e9ef;
+              display: flex;
+              justify-content: space-between;
+              font-size: 9px;
+              color: #9aa3b2;
+              letter-spacing: 0.3px;
+            }
+            .footer .confidential { font-weight: 700; letter-spacing: 1px; color: #47526b; }
+
+            .disclaimer {
+              margin-top: 10px;
+              font-size: 9px;
+              color: #9aa3b2;
+              line-height: 1.5;
+              font-style: italic;
             }
           </style>
         </head>
         <body>
-          <div class="header-band">
-            <div class="brand">Cyberscienza · Quantum Security Threat Intelligence</div>
-            <h1>Threat Intelligence Report</h1>
-            <div class="target">\${activeData.target} &nbsp;·&nbsp; \${activeData.kind}</div>
+          <div class="cover">
+            <div class="cover-top">
+              <div class="brandmark">
+                <div class="mark">C</div>
+                <div>
+                  <div class="name">CYBERSCIENZA</div>
+                  <div class="tagline">Threat Intelligence Division</div>
+                </div>
+              </div>
+              <div class="report-id">
+                REPORT REF <b>\${reportId}</b><br/>
+                ISSUED <b>\${generatedAtStr}</b>
+              </div>
+            </div>
+
+            <div class="cover-title">Threat Intelligence Report</div>
+            <div class="cover-target">\${activeData.target}<span class="type-chip">\${activeData.kind}</span></div>
+
+            <div class="verdict-strip">
+              <div class="verdict-pill">\${statusLabel}</div>
+              <div class="verdict-rate">Detection rate<br/><b>\${isNaN(detectionRate) ? 0 : detectionRate}%</b> of \${activeData.total} vendors</div>
+            </div>
           </div>
 
           <div class="content">
-            <div class="status-pill">\${statusLabel}</div>
-
             <div class="stats-grid">
               <div class="stat-card stat-mal"><div class="num">\${activeData.malicious}</div><div class="label">Malicious</div></div>
               <div class="stat-card stat-sus"><div class="num">\${activeData.suspicious}</div><div class="label">Suspicious</div></div>
@@ -397,21 +470,27 @@ const HTML_PAGE = `<!DOCTYPE html>
               <div class="stat-card stat-undet"><div class="num">\${activeData.undetected}</div><div class="label">Undetected</div></div>
             </div>
 
-            <h3 class="section">⚡ AI Threat Assessment</h3>
-            <div class="ai-box">\${activeData.aiAnalysis}</div>
+            <div class="section-head"><div class="idx">1</div><h3>AI Threat Assessment</h3><div class="line"></div></div>
+            <div class="ai-box">\${aiSections}</div>
 
-            <h3 class="section">File / Target Metadata</h3>
+            <div class="section-head"><div class="idx">2</div><h3>Target Metadata</h3><div class="line"></div></div>
             <table>\${metaRows}</table>
 
-            <h3 class="section">Vendor Detections (\${(activeData.engines || []).length})</h3>
+            <div class="section-head"><div class="idx">3</div><h3>Vendor Detections (\${(activeData.engines || []).length})</h3><div class="line"></div></div>
             <div class="engine-table-wrap">
               <table>
-                <tr><th>Engine</th><th>Result</th></tr>
+                <tr><th>Security Vendor</th><th>Verdict</th></tr>
                 \${engineRows}
               </table>
             </div>
 
-            <div class="footer">Generated by CYBERSCIENZA &nbsp;·&nbsp; \${new Date().toLocaleString()}</div>
+            <div class="footer">
+              <span class="confidential">CYBERSCIENZA · CONFIDENTIAL</span>
+              <span>Report \${reportId} · Generated \${generatedAtStr}</span>
+            </div>
+            <div class="disclaimer">
+              This report is generated from automated third-party threat intelligence sources and an AI-assisted summary. It is intended to support, not replace, professional security judgment. Verify findings before taking remediation action.
+            </div>
           </div>
 
           <script>window.onload = function() { window.print(); }</s\` + \`cript>
@@ -426,8 +505,8 @@ const HTML_PAGE = `<!DOCTYPE html>
 
 // ---------- OpenRouter API Multi-Model Engine ----------
 
-async function generateOpenRouterAnalysis(vtSummary, clientOpenRouterKey) {
-  const apiKey = clientOpenRouterKey || OPENROUTER_API_KEY;
+async function generateOpenRouterAnalysis(vtSummary) {
+  const apiKey = OPENROUTER_API_KEY;
   if (!apiKey) return "AI Summary Unavailable: Missing OpenRouter Key.";
 
   const prompt = `Act as a Senior Threat Analyst at CYBERSCIENZA. Provide an executive summary of this security scan:
@@ -479,7 +558,7 @@ Provide 3 sections:
     }
   }
 
-  return `OpenRouter AI Service was unable to respond. Reason: ${lastError || 'unknown error'}`;
+  return `AI Service was unable to respond. Reason: ${lastError || 'unknown error'}`;
 }
 
 // ---------- VirusTotal API Engine ----------
@@ -544,7 +623,6 @@ function parseMultipart(buffer, boundary) {
   const boundaryBuffer = Buffer.from('--' + boundary);
   let start = buffer.indexOf(boundaryBuffer);
   let fileObj = null;
-  let openrouterKey = '';
 
   while (start !== -1) {
     start += boundaryBuffer.length;
@@ -562,13 +640,11 @@ function parseMultipart(buffer, boundary) {
     if (headers.includes('name="file"') && headers.includes('filename=')) {
       const match = headers.match(/filename="([^"]+)"/);
       fileObj = { filename: match ? match[1] : 'file', data: body };
-    } else if (headers.includes('name="openrouterKey"')) {
-      openrouterKey = body.toString('utf-8').trim();
     }
 
     start = nextBoundary;
   }
-  return { fileObj, openrouterKey };
+  return { fileObj };
 }
 
 const server = http.createServer((req, res) => {
@@ -579,7 +655,6 @@ const server = http.createServer((req, res) => {
       try {
         const contentType = req.headers['content-type'] || '';
         let result;
-        let openrouterKey = '';
 
         if (contentType.includes('multipart/form-data')) {
           const buffer = Buffer.concat(chunks);
@@ -588,11 +663,9 @@ const server = http.createServer((req, res) => {
           const parsed = parseMultipart(buffer, boundary);
 
           if (!parsed.fileObj) throw new Error("No file payload detected.");
-          openrouterKey = parsed.openrouterKey;
           result = await handleFileScan(parsed.fileObj.data, parsed.fileObj.filename);
         } else {
           const parsed = JSON.parse(Buffer.concat(chunks).toString('utf-8') || '{}');
-          openrouterKey = parsed.openrouterKey || '';
 
           const target = (parsed.target || '').trim();
           if (!target) throw new Error('No target provided.');
@@ -606,7 +679,7 @@ const server = http.createServer((req, res) => {
           }
         }
 
-        result.aiAnalysis = await generateOpenRouterAnalysis(result, openrouterKey);
+        result.aiAnalysis = await generateOpenRouterAnalysis(result);
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(result));
